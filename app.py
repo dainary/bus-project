@@ -351,6 +351,14 @@ border-radius:5px;
     style="width:220px;"
 >
 
+<div id="searchResult"
+     style="
+     max-height:150px;
+     overflow-y:auto;
+     margin-top:5px;
+     ">
+</div>
+
 <datalist id="busList">
 </datalist>
 
