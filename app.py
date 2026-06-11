@@ -1,35 +1,23 @@
-import streamlit as st
-st.set_page_config(layout="wide")
-
 import pandas as pd
 import folium
 import json
 from branca.element import Element
-from streamlit_folium import st_folium
+
+# =========================
+# 1. 데이터 불러오기
+# =========================
+df = pd.read_excel(
+    r"C:\Users\Owner\Desktop\파이썬 프로젝트\불편도 코딩 엑셀자료.xlsx"
+)
+
+korea = pd.read_csv(
+    r"C:\Users\Owner\Desktop\파이썬 프로젝트\국토교통부_전국 버스정류장 위치정보_20251031.csv"
+)
 
 
-st.title("달서구 버스정류장 불편도 지도")
-
-
-# ======================
-# 데이터 로드
-# ======================
-@st.cache_data
-def load_bus_data():
-    return pd.read_excel("불편도 코딩 엑셀자료.xlsx", engine="openpyxl")
-
-@st.cache_data
-def load_korea():
-    return pd.read_csv("국토교통부_전국 버스정류장 위치정보_20251031.csv")
-
-
-df = load_bus_data()
-korea = load_korea()
-
-
-# ======================
-# 점수 계산용 테이블
-# ======================
+# =========================
+# 2. 점수 계산
+# =========================
 shelter_tbl = pd.DataFrame({
     "shelter type": ["A","B","C","D","E","F","G","H","I"],
     "shelter_sc": [7,6,8,4,2,5,1,9,3]
@@ -64,48 +52,52 @@ weight = {
 }
 
 
-# ======================
-# 점수 계산 (깔끔 버전)
-# ======================
-def get_score(df):
+discomfort = []
 
-    shelter = []
-    park = []
-    space = []
-    obstacle = []
-    road = []
+for i in range(len(df)):
 
-    for i in range(len(df)):
+    s = shelter_tbl.loc[shelter_tbl["shelter type"] == df["shelter type"][i], "shelter_sc"].values[0]
+    p = park_tbl.loc[park_tbl["illegal parking"] == df["illegal parking"][i], "park_sc"].values[0]
+    o = obs_tbl.loc[obs_tbl["obstacle condition"] == str(df["obstacle condition"][i]), "obs_sc"].values[0]
+    sp = space_tbl.loc[space_tbl["available space"] == df["available space"][i], "space_sc"].values[0]
+    r = road_tbl.loc[road_tbl["road condition"] == str(df["road condition"][i]), "road_sc"].values[0]
 
-        s = shelter_tbl.loc[shelter_tbl["shelter type"] == df["shelter type"][i], "shelter_sc"].values[0]
-        shelter.append(s * weight["shelter type"])
+    score = (
+        s * weight["shelter type"] +
+        p * weight["illegal parking"] +
+        o * weight["obstacle condition"] +
+        sp * weight["available space"] +
+        r * weight["road condition"]
+    )
 
-        p = park_tbl.loc[park_tbl["illegal parking"] == df["illegal parking"][i], "park_sc"].values[0]
-        park.append(p * weight["illegal parking"])
+    discomfort.append(score)
 
-        sp = space_tbl.loc[space_tbl["available space"] == df["available space"][i], "space_sc"].values[0]
-        space.append(sp * weight["available space"])
-
-        o = obs_tbl.loc[obs_tbl["obstacle condition"] == str(df["obstacle condition"][i]), "obs_sc"].values[0]
-        obstacle.append(o * weight["obstacle condition"])
-
-        r = road_tbl.loc[road_tbl["road condition"] == str(df["road condition"][i]), "road_sc"].values[0]
-        road.append(r * weight["road condition"])
-
-    total = []
-    for i in range(len(df)):
-        total.append(shelter[i] + park[i] + space[i] + obstacle[i] + road[i])
-
-    return total
-
-
-df["DiscomfortScore"] = get_score(df)
+df["DiscomfortScore"] = discomfort
 df["DiscomfortScore"] = df["DiscomfortScore"] / max(df["DiscomfortScore"]) * 10
 
 
-# ======================
-# 색상 함수 (핵심)
-# ======================
+# =========================
+# 3. 위치 데이터 병합
+# =========================
+df["bus stop"] = df["bus stop"].astype(str).str.strip()
+korea["정류장명"] = korea["정류장명"].astype(str).str.strip()
+
+korea["위도"] = pd.to_numeric(korea["위도"], errors="coerce")
+korea["경도"] = pd.to_numeric(korea["경도"], errors="coerce")
+
+coord = korea[
+    (korea["위도"].between(35.75, 35.90)) &
+    (korea["경도"].between(128.45, 128.65))
+].drop_duplicates(subset=["정류장명"])
+
+result = pd.merge(df, coord, left_on="bus stop", right_on="정류장명", how="left")
+result = result.drop(columns=["정류장명"])
+result = result.dropna(subset=["위도","경도"])
+
+
+# =========================
+# 4. 색상 함수
+# =========================
 def get_color(score):
     if score >= 7:
         return "red", "어려움"
@@ -115,112 +107,99 @@ def get_color(score):
         return "green", "쉬움"
 
 
-# ======================
-# 지도 생성 (캐시 핵심)
-# ======================
-@st.cache_resource
-def make_map(data):
+# =========================
+# 5. 지도 생성
+# =========================
+m = folium.Map(location=[35.829, 128.532], zoom_start=13)
 
-    m = folium.Map(location=[35.829, 128.532], zoom_start=13)
+search_data = []
 
-    search_data = []
+for _, row in result.iterrows():
 
-    for _, row in data.iterrows():
+    color, grade = get_color(row["DiscomfortScore"])
 
-        color, grade = get_color(row["DiscomfortScore"])
+    folium.CircleMarker(
+        location=[row["위도"], row["경도"]],
+        radius=6,
+        color=color,
+        fill=True,
+        fill_opacity=0.8,
+        popup=f"""
+        <b>{row['bus stop']}</b><br>
+        점수: {round(row['DiscomfortScore'],2)}<br>
+        등급: {grade}
+        """
+    ).add_to(m)
 
-        folium.CircleMarker(
-            location=[row["위도"], row["경도"]],
-            radius=6,
-            color=color,
-            fill=True,
-            fill_opacity=0.8,
-            popup=f"""
-            <b>{row['bus stop']}</b><br>
-            점수: {round(row['DiscomfortScore'],2)}<br>
-            등급: {grade}<br>
-            """
-        ).add_to(m)
+    search_data.append({
+        "name": row["bus stop"],
+        "lat": row["위도"],
+        "lng": row["경도"]
+    })
 
-        search_data.append({
-            "name": row["bus stop"],
-            "lat": row["위도"],
-            "lng": row["경도"]
-        })
 
-    search_json = json.dumps(search_data, ensure_ascii=False)
+# =========================
+# 6. 검색 기능 JS
+# =========================
+search_json = json.dumps(search_data, ensure_ascii=False)
+map_name = m.get_name()
 
-    map_name = m.get_name()
+search_html = f"""
+<div style="
+position: fixed;
+top: 10px;
+left: 60px;
+z-index:9999;
+background:white;
+padding:10px;
+border:2px solid gray;
+border-radius:5px;
+">
 
-    search_html = f"""
-    <div style="position:fixed;top:10px;left:60px;z-index:9999;background:white;padding:10px;">
-        <input id="busSearch" placeholder="정류장 검색">
-        <button onclick="searchBus()">검색</button>
-    </div>
+<input id="busSearch" placeholder="정류장 검색">
+<button onclick="searchBus()">검색</button>
 
-    <script>
-    var busStops = {search_json};
-    var map = {map_name};
-    var marker;
+</div>
 
-    function searchBus(){{
-        var keyword = document.getElementById("busSearch").value;
+<script>
 
-        for(let i=0;i<busStops.length;i++){{
+var busStops = {search_json};
+var map = {map_name};
+var marker;
 
-            if(busStops[i].name.includes(keyword)){{
-                map.setView([busStops[i].lat, busStops[i].lng], 16);
+function searchBus() {{
 
-                if(marker){{
-                    map.removeLayer(marker);
-                }}
+    var keyword = document.getElementById("busSearch").value;
 
-                marker = L.marker([busStops[i].lat, busStops[i].lng]).addTo(map);
-                marker.bindPopup(busStops[i].name).openPopup();
-                return;
+    for (var i=0; i<busStops.length; i++) {{
+
+        if (busStops[i].name.includes(keyword)) {{
+
+            map.setView([busStops[i].lat, busStops[i].lng], 16);
+
+            if (marker) {{
+                map.removeLayer(marker);
             }}
+
+            marker = L.marker([busStops[i].lat, busStops[i].lng]).addTo(map);
+            marker.bindPopup(busStops[i].name).openPopup();
+
+            return;
         }}
-
-        alert("없음");
     }}
-    </script>
-    """
 
-    m.get_root().html.add_child(Element(search_html))
+    alert("검색 결과 없음");
+}}
 
-    return m
+</script>
+"""
 
-
-# ======================
-# 위치 병합
-# ======================
-dalseo = df.copy()
-
-korea["정류장명"] = korea["정류장명"].astype(str).str.strip()
-dalseo["bus stop"] = dalseo["bus stop"].astype(str).str.strip()
-
-korea["위도"] = pd.to_numeric(korea["위도"], errors="coerce")
-korea["경도"] = pd.to_numeric(korea["경도"], errors="coerce")
-
-coord = korea[(korea["위도"].between(35.75,35.90)) &
-              (korea["경도"].between(128.45,128.65))]
-
-coord = coord.drop_duplicates(subset=["정류장명"])
-
-result = pd.merge(
-    dalseo,
-    coord,
-    left_on="bus stop",
-    right_on="정류장명",
-    how="left"
-)
-
-result = result.dropna(subset=["위도","경도"])
+m.get_root().html.add_child(Element(search_html))
 
 
-# ======================
-# 실행
-# ======================
-m = make_map(result)
+# =========================
+# 7. 저장
+# =========================
+m.save("달서구_불편도지도.html")
 
-st_folium(m, width=1400, height=800, key="map")
+print("완료")
