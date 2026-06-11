@@ -141,9 +141,7 @@ korea = pd.read_csv(
     "국토교통부_전국 버스정류장 위치정보_20251031.csv"
 )
 
-dalseo = pd.read_excel(
-    "dalseo_bus_stop_discomfortscore.xlsx"
-)
+dalseo = df.copy()
 
 # 공백 제거
 dalseo["bus stop"] = dalseo["bus stop"].astype(str).str.strip()
