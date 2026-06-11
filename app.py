@@ -184,234 +184,123 @@ result_map = result.dropna(subset=["위도", "경도"])
 
 # 지도 생성
 def make_map(result_map):
-    
+
     m = folium.Map(
         location=[35.829, 128.532],
         zoom_start=13
     )
-    
-    # 검색용 데이터 저장
+
     search_data = []
-    
+
     for _, row in result_map.iterrows():
-    
+
         score = row["DiscomfortScore"]
-        
+
         kakao_link = (
-        f"https://map.kakao.com/link/map/"
-        f"{row['bus stop']},{row['위도']},{row['경도']}"
-     )
-    
-    # AI 분석 결과 생성
+            f"https://map.kakao.com/link/map/"
+            f"{row['bus stop']},{row['위도']},{row['경도']}"
+        )
+
         analysis = []
-        
+
         if row["available space"] == "X":
             analysis.append("여유공간이 없음")
-        
+
         if row["obstacle condition"] >= 2:
             analysis.append("장애물이 존재함")
-        
+
         if row["illegal parking"] == "O":
             analysis.append("불법주정차가 확인됨")
-        
+
         if row["road condition"] >= 2:
             analysis.append("보도 상태 개선 필요")
-        
-        if row["shelter type"] in ["H","C","A" ]:
+
+        if row["shelter type"] in ["H", "C", "A"]:
             analysis.append("쉘터 시설이 좋지 않음")
-        
+
         if len(analysis) == 0:
             analysis.append("전반적인 접근성이 양호함")
-        
-        analysis_text = "<br>".join(
-            ["• " + item for item in analysis]
-        )
-        
-       
-        # 등급 및 색상
+
+        analysis_text = "<br>".join(["• " + item for item in analysis])
+
         if score >= 7.25:
             color = "red"
             grade = "어려움"
-    
         elif score >= 6.5:
             color = "orange"
             grade = "보통"
-    
         else:
             color = "green"
             grade = "쉬움"
-    
-        # 마우스 올렸을 때 표시될 내용
-        tooltip_text = f"""
-        <div style="
-            font-size:20px;
-            font-weight:bold;
-            padding:5px;
-            white-space:nowrap;
-        ">
-            {row['bus stop']}
-        </div>
-        """
-    
-        # 원형 마커
+
         folium.CircleMarker(
-            location=[float(row["위도"]), float(row["경도"])],
+            location=[row["위도"], row["경도"]],
             radius=7,
             color=color,
             fill=True,
             fill_color=color,
             fill_opacity=0.8,
-    
-            # 마우스 올리면 즉시 표시
-            tooltip=folium.Tooltip(
-                tooltip_text,
-                sticky=True
-            ),
-    
-            # 클릭하면 상세정보 표시
             popup=f"""
-            <div style="width:380px; font-size:16px;">
-            
-            <b>정류장명</b> : {row['bus stop']}<br>
-            <b>불편도 점수</b> : {round(score,2)}<br>
-            <b>접근성 등급</b> : {grade}<br><br>
-            
-            <b>세부 현황</b><br>
+            <b>{row['bus stop']}</b><br>
+            점수: {round(score,2)}<br>
+            등급: {grade}<br><br>
             {row['Reason']}<br><br>
-            
-            <hr>
-            
-            <b>AI 분석 결과</b><br>
-            {analysis_text}
-            
-            <br><br>
-            
-            <a href="{kakao_link}"
-               target="_blank"
-               style="
-               background:#FEE500;
-               color:black;
-               padding:8px 12px;
-               border-radius:5px;
-               text-decoration:none;
-               font-weight:bold;
-               ">
-            📍 카카오맵에서 위치 보기
-            </a>
-            
-            </div>
+            {analysis_text}<br><br>
+            <a href="{kakao_link}" target="_blank">카카오맵</a>
             """
         ).add_to(m)
-    
-        # 검색용 데이터 저장
+
         search_data.append({
             "name": row["bus stop"],
             "lat": float(row["위도"]),
             "lng": float(row["경도"])
         })
-    
-    # Python → JavaScript 전달
+
+    # 🔥 여기부터 "반드시 return 전에 처리"
+    import json
+    from branca.element import Element
+
     search_json = json.dumps(search_data, ensure_ascii=False)
-    
-    # 지도 객체 이름 가져오기
     map_name = m.get_name()
-    
+
     search_html = f"""
-    <div style="
-    position: fixed;
-    top: 10px;
-    left: 60px;
-    z-index:9999;
-    background:white;
-    padding:10px;
-    border:2px solid gray;
-    border-radius:5px;
-    ">
-    
-    <input
-        id="busSearch"
-        list="busList"
-        placeholder="정류장명 검색"
-        style="width:220px;"
-    >
-    
-    
-    <datalist id="busList">
-    </datalist>
-    
-    <button onclick="searchBus()">
-    검색
-    </button>
-    
+    <div style="position:fixed;top:10px;left:60px;z-index:9999;background:white;padding:10px;border:2px solid gray;">
+        <input id="busSearch" placeholder="정류장 검색" style="width:200px;">
+        <button onclick="searchBus()">검색</button>
+        <datalist id="busList"></datalist>
     </div>
-    
+
     <script>
-    
     var busStops = {search_json};
-    
-    var searchMarker = null;
-    
-    var datalist =
-        document.getElementById("busList");
-    
-    busStops.forEach(function(stop){{
-        var option =
-            document.createElement("option");
-    
-        option.value = stop.name;
-    
-        datalist.appendChild(option);
-    }});
-    
-    document
-    .getElementById("busSearch")
-    .addEventListener("keypress", function(event) {{
-    
-        if(event.key === "Enter") {{
-            searchBus();
-        }}
-    
-    }});
-    
+    var map = {map_name};
+    var marker = null;
+
     function searchBus() {{
-    
-        var keyword =
-            document.getElementById("busSearch")
-            .value
-            .trim();
-    
-        for(var i=0; i<busStops.length; i++) {{
-    
-            if(busStops[i].name.includes(keyword)) {{
-    
-                {map_name}.setView(
-                    [busStops[i].lat, busStops[i].lng],
-                    16
-                );
-    
-                if(searchMarker){{
-                    {map_name}.removeLayer(searchMarker);
+        var keyword = document.getElementById("busSearch").value;
+
+        for (var i = 0; i < busStops.length; i++) {{
+            if (busStops[i].name.includes(keyword)) {{
+
+                map.setView([busStops[i].lat, busStops[i].lng], 16);
+
+                if (marker) {{
+                    map.removeLayer(marker);
                 }}
-    
-                searchMarker = L.marker(
-                    [busStops[i].lat, busStops[i].lng]
-                ).addTo({map_name});
-    
-                searchMarker.bindPopup(
-                    "<b>" + busStops[i].name + "</b>"
-                ).openPopup();
-    
+
+                marker = L.marker([busStops[i].lat, busStops[i].lng]).addTo(map);
+                marker.bindPopup(busStops[i].name).openPopup();
+
                 return;
             }}
         }}
-    
-        alert("검색 결과가 없습니다.");
+
+        alert("검색 결과 없음");
     }}
-    
     </script>
     """
-    
+
     m.get_root().html.add_child(Element(search_html))
+
     return m
 
 # 저장
