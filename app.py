@@ -7,10 +7,10 @@ import json
 from branca.element import Element
 from streamlit_folium import st_folium
 
-st.title("달서구 버스정류장 불편도 지도")
+st.title("달서구 버스정류장 불편도 분석 지도")
 
 # =========================
-# 1. 데이터 로딩
+# 데이터 로딩
 # =========================
 @st.cache_data
 def load_bus_data():
@@ -24,7 +24,7 @@ df = load_bus_data()
 korea = load_korea()
 
 # =========================
-# 2. 전처리
+# 전처리
 # =========================
 df["bus stop"] = df["bus stop"].astype(str).str.strip()
 korea["정류장명"] = korea["정류장명"].astype(str).str.strip()
@@ -45,7 +45,7 @@ result = pd.merge(
 result = result.dropna(subset=["위도", "경도"])
 
 # =========================
-# 3. 지도 생성 (핵심 안정화)
+# 지도 생성 (완성본)
 # =========================
 @st.cache_resource
 def make_map(data):
@@ -58,7 +58,9 @@ def make_map(data):
 
         score = row.get("DiscomfortScore", 0)
 
-        # 색상
+        # =========================
+        # 등급 + 색상
+        # =========================
         if score >= 7:
             color = "red"
             grade = "어려움"
@@ -69,23 +71,74 @@ def make_map(data):
             color = "green"
             grade = "쉬움"
 
-        # 간단 popup
+        # =========================
+        # 카카오맵 링크
+        # =========================
+        kakao_link = (
+            f"https://map.kakao.com/link/map/"
+            f"{row['bus stop']},{row['위도']},{row['경도']}"
+        )
+
+        # =========================
+        # 분석 내용
+        # =========================
+        analysis = []
+
+        if row.get("available space") == "X":
+            analysis.append("여유공간 없음")
+
+        if row.get("obstacle condition", 0) >= 2:
+            analysis.append("장애물 존재")
+
+        if row.get("illegal parking") == "O":
+            analysis.append("불법주정차")
+
+        if row.get("road condition", 0) >= 2:
+            analysis.append("보도 상태 불량")
+
+        if row.get("shelter type") in ["H", "C", "A"]:
+            analysis.append("쉘터 상태 불량")
+
+        if not analysis:
+            analysis.append("전반적으로 양호")
+
+        analysis_text = "<br>".join(["• " + x for x in analysis])
+
+        # =========================
+        # popup (완성형)
+        # =========================
         popup = f"""
-        <b>{row['bus stop']}</b><br>
-        점수: {round(score,2)}<br>
-        등급: {grade}
+        <div style="width:300px; font-size:14px;">
+
+        <b>정류장</b>: {row['bus stop']}<br>
+        <b>불편도</b>: {round(score,2)}<br>
+        <b>등급</b>: {grade}<br><br>
+
+        <b>상세 분석</b><br>
+        {analysis_text}<br><br>
+
+        <a href="{kakao_link}" target="_blank"
+           style="background:#FEE500;padding:6px 10px;
+           border-radius:5px;text-decoration:none;">
+           카카오맵 보기
+        </a>
+
+        </div>
         """
 
         folium.CircleMarker(
             location=[row["위도"], row["경도"]],
-            radius=6,
+            radius=7,
             color=color,
             fill=True,
             fill_color=color,
-            fill_opacity=0.8,
+            fill_opacity=0.85,
             popup=popup
         ).add_to(m)
 
+        # =========================
+        # 검색 데이터
+        # =========================
         search_data.append({
             "name": row["bus stop"],
             "lat": float(row["위도"]),
@@ -93,7 +146,7 @@ def make_map(data):
         })
 
     # =========================
-    # 4. 검색창 JS (안정형)
+    # 검색 UI
     # =========================
     search_json = json.dumps(search_data, ensure_ascii=False)
     map_name = m.get_name()
@@ -147,7 +200,7 @@ def make_map(data):
     return m
 
 # =========================
-# 5. 실행 (여기만 Streamlit)
+# 실행
 # =========================
 m = make_map(result)
 
